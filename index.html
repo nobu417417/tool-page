@@ -107,7 +107,7 @@
   </div>
 
   <div class="version-box">
-    更新日時: 2026-09-15 08:46
+    更新日時: 2026-09-15 08:51
   </div>
 
   <script>
@@ -154,7 +154,6 @@
       userLinkArea.innerHTML = `ユーザーページ: <a href="${profileUrl}" target="_blank" rel="noopener noreferrer">${profileUrl}</a>`;
     }
 
-    // 動画URLから実際の解像度（高さ）を取得する関数
     function getVideoHeight(url) {
       return new Promise((resolve) => {
         const video = document.createElement('video');
@@ -191,54 +190,102 @@
       }
     }
 
-    // TikTok処理（解像度メタデータによる厳密な画質判定）
-    async function handleTikTok(rawUrl) {
-      const parsed = parseTikTokInfo(rawUrl);
-      const statusDiv = document.getElementById('status');
+    // 予備ルート: Cobalt API（1080p対応API）
+    async function fetchFromCobalt(rawUrl) {
+      try {
+        const res = await fetch('https://api.cobalt.tools/api/json', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            url: rawUrl,
+            videoQuality: 'max'
+          })
+        });
+        const data = await res.json();
+        if (data && data.url) {
+          return data.url;
+        }
+      } catch (e) {}
+      return null;
+    }
 
+    // 主ルート: TikWM API
+    async function fetchFromTikWM(rawUrl) {
       try {
         const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(rawUrl)}&hd=1`;
         const res = await fetch(apiUrl);
         const data = await res.json();
-
         if (data.code === 0 && data.data) {
-          let videoLink = data.data.hdplay || data.data.play;
-
-          if (videoLink) {
-            if (!videoLink.startsWith('http')) {
-              videoLink = 'https://www.tikwm.com' + videoLink;
-            }
-
-            statusDiv.innerText = '画質を検証中...';
-
-            // 実際の動画解像度（高さpx）を取得して判定
-            const height = await getVideoHeight(videoLink);
-            let qualityLabel = '';
-            
-            if (height >= 1080) {
-              qualityLabel = `画質: HD (${height}p)`;
-            } else if (height > 0) {
-              qualityLabel = `画質: SD (${height}p)`;
-            } else {
-              qualityLabel = '画質: 取得済';
-            }
-
-            const author = (data.data.author && data.data.author.unique_id) || parsed.author || 'user';
-            const videoId = data.data.id || parsed.videoId || Date.now();
-            const fileName = `${author}(${videoId}).mp4`;
-            
-            showUserLink(author);
-            await triggerDirectDownload(videoLink, fileName, qualityLabel);
-            return true;
-          } else {
-            lastErrorMessage = '[TikWM Error] 動画URLが見つかりませんでした。';
+          let link = data.data.hdplay || data.data.play;
+          if (link && !link.startsWith('http')) {
+            link = 'https://www.tikwm.com' + link;
           }
-        } else {
-          lastErrorMessage = `[TikWM Error] code: ${data.code}, msg: ${data.msg || 'failed'}`;
+          const author = (data.data.author && data.data.author.unique_id) || '';
+          const id = data.data.id || '';
+          return { link, author, id };
         }
-      } catch (err) {
-        lastErrorMessage = `[TikWM Fetch Error] ${err.message}`;
+      } catch (e) {}
+      return null;
+    }
+
+    // TikTok処理（ハイブリッド方式：高画質優先）
+    async function handleTikTok(rawUrl) {
+      const parsed = parseTikTokInfo(rawUrl);
+      const statusDiv = document.getElementById('status');
+      statusDiv.innerText = '画質解析中...';
+
+      let targetUrl = '';
+      let author = parsed.author || 'user';
+      let videoId = parsed.videoId || Date.now();
+
+      // 1. まずTikWMで検索
+      const tikwmResult = await fetchFromTikWM(rawUrl);
+      if (tikwmResult && tikwmResult.link) {
+        targetUrl = tikwmResult.link;
+        if (tikwmResult.author) author = tikwmResult.author;
+        if (tikwmResult.id) videoId = tikwmResult.id;
+
+        // 2. 画質チェック。SD（1080p未満）だった場合はCobalt APIへ高画質をリクエスト
+        const height = await getVideoHeight(targetUrl);
+        if (height < 1080) {
+          statusDiv.innerText = '最高画質(1080p)サーバーへ切り替え中...';
+          const cobaltUrl = await fetchFromCobalt(rawUrl);
+          if (cobaltUrl) {
+            const cobaltHeight = await getVideoHeight(cobaltUrl);
+            if (cobaltHeight > height) {
+              targetUrl = cobaltUrl;
+            }
+          }
+        }
+      } else {
+        // TikWM失敗時のフォールバック
+        targetUrl = await fetchFromCobalt(rawUrl);
       }
+
+      if (targetUrl) {
+        statusDiv.innerText = '最終画質を検証中...';
+        const finalHeight = await getVideoHeight(targetUrl);
+        
+        let qualityLabel = '';
+        if (finalHeight >= 1080) {
+          qualityLabel = `画質: HD (${finalHeight}p)`;
+        } else if (finalHeight > 0) {
+          qualityLabel = `画質: SD (${finalHeight}p)`;
+        } else {
+          qualityLabel = '画質: 取得済';
+        }
+
+        const fileName = `${author}(${videoId}).mp4`;
+        showUserLink(author);
+        await triggerDirectDownload(targetUrl, fileName, qualityLabel);
+        return true;
+      } else {
+        lastErrorMessage = '[Error] 最高画質サーバーおよび予備サーバーからの取得に失敗しました。';
+      }
+
       return false;
     }
 
