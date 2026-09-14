@@ -107,7 +107,7 @@
   </div>
 
   <div class="version-box">
-    更新日時: 2026-09-15 08:36
+    更新日時: 2026-09-15 08:39
   </div>
 
   <script>
@@ -156,7 +156,7 @@
 
     async function triggerDirectDownload(fileUrl, fileName) {
       const statusDiv = document.getElementById('status');
-      statusDiv.innerText = '最高画質(HD)動画ファイルをダウンロード中...';
+      statusDiv.innerText = '動画ファイルをダウンロード中...';
       try {
         const res = await fetch(fileUrl);
         if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
@@ -171,36 +171,35 @@
         URL.revokeObjectURL(blobUrl);
         statusDiv.innerText = 'ダウンロードが完了しました！';
       } catch (e) {
-        statusDiv.innerText = '別タブで最高画質動画を開きます。右クリックで保存してください。';
+        statusDiv.innerText = '別タブで動画を開きます。右クリックで保存してください。';
         window.open(fileUrl, '_blank');
       }
     }
 
-    // TikTok処理（最高画質・HD優先）
+    // TikTok処理（最高画質対応）
     async function handleTikTok(rawUrl) {
       const parsed = parseTikTokInfo(rawUrl);
 
       try {
-        const formData = new FormData();
-        formData.append('url', rawUrl);
-        formData.append('hd', 1);
-
-        const res = await fetch('https://www.tikwm.com/api/', { method: 'POST', body: formData });
+        // GETリクエストでhd=1を直接付与（TikWMサーバーにHD変換処理を強制）
+        const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(rawUrl)}&hd=1`;
+        const res = await fetch(apiUrl);
         const data = await res.json();
 
         if (data.code === 0 && data.data) {
-          // hdplay（1080p等）が存在する場合は必ず最優先、取得できない場合のみ標準(play)を使用
+          // hdplay（1080p）が存在する場合は最優先、ない場合はplayを使用
           let videoLink = data.data.hdplay || data.data.play;
 
           if (videoLink) {
-            // tikwmの相対パス返却対策（httpが含まれない場合はドメイン付与）
             if (!videoLink.startsWith('http')) {
               videoLink = 'https://www.tikwm.com' + videoLink;
             }
 
             const author = (data.data.author && data.data.author.unique_id) || parsed.author || 'user';
             const videoId = data.data.id || parsed.videoId || Date.now();
-            const fileName = `${author}(${videoId}) - TikTok_HD.mp4`;
+            
+            // 指定のファイル名形式：ユーザー名(動画ID).mp4
+            const fileName = `${author}(${videoId}).mp4`;
             
             showUserLink(author);
             await triggerDirectDownload(videoLink, fileName);
