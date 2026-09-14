@@ -107,7 +107,7 @@
   </div>
 
   <div class="version-box">
-    更新日時: 2026-09-15 08:39
+    更新日時: 2026-09-15 08:42
   </div>
 
   <script>
@@ -154,9 +154,9 @@
       userLinkArea.innerHTML = `ユーザーページ: <a href="${profileUrl}" target="_blank" rel="noopener noreferrer">${profileUrl}</a>`;
     }
 
-    async function triggerDirectDownload(fileUrl, fileName) {
+    async function triggerDirectDownload(fileUrl, fileName, qualityLabel) {
       const statusDiv = document.getElementById('status');
-      statusDiv.innerText = '動画ファイルをダウンロード中...';
+      statusDiv.innerText = `[${qualityLabel}] ダウンロード中...`;
       try {
         const res = await fetch(fileUrl);
         if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
@@ -169,26 +169,34 @@
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(blobUrl);
-        statusDiv.innerText = 'ダウンロードが完了しました！';
+        statusDiv.innerText = `[${qualityLabel}] ダウンロードが完了しました！`;
       } catch (e) {
-        statusDiv.innerText = '別タブで動画を開きます。右クリックで保存してください。';
+        statusDiv.innerText = `[${qualityLabel}] 別タブで動画を開きます。右クリックで保存してください。`;
         window.open(fileUrl, '_blank');
       }
     }
 
-    // TikTok処理（最高画質対応）
+    // TikTok処理（画質判定ロジック付き）
     async function handleTikTok(rawUrl) {
       const parsed = parseTikTokInfo(rawUrl);
 
       try {
-        // GETリクエストでhd=1を直接付与（TikWMサーバーにHD変換処理を強制）
         const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(rawUrl)}&hd=1`;
         const res = await fetch(apiUrl);
         const data = await res.json();
 
         if (data.code === 0 && data.data) {
-          // hdplay（1080p）が存在する場合は最優先、ない場合はplayを使用
-          let videoLink = data.data.hdplay || data.data.play;
+          let videoLink = '';
+          let qualityLabel = '';
+
+          // hdplayが存在し、かつ標準playのURLと異なる場合のみ最高画質(HD)と判定
+          if (data.data.hdplay && data.data.hdplay !== data.data.play) {
+            videoLink = data.data.hdplay;
+            qualityLabel = '画質: 最高画質(HD / 1080p相当)';
+          } else if (data.data.play) {
+            videoLink = data.data.play;
+            qualityLabel = '画質: 標準(SD / 720p相当)';
+          }
 
           if (videoLink) {
             if (!videoLink.startsWith('http')) {
@@ -197,12 +205,10 @@
 
             const author = (data.data.author && data.data.author.unique_id) || parsed.author || 'user';
             const videoId = data.data.id || parsed.videoId || Date.now();
-            
-            // 指定のファイル名形式：ユーザー名(動画ID).mp4
             const fileName = `${author}(${videoId}).mp4`;
             
             showUserLink(author);
-            await triggerDirectDownload(videoLink, fileName);
+            await triggerDirectDownload(videoLink, fileName, qualityLabel);
             return true;
           } else {
             lastErrorMessage = '[TikWM Error] 動画URLが見つかりませんでした。';
