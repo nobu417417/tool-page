@@ -2,6 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
+  <!-- 検索エンジンにインデックスされないように設定 -->
   <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>tool-page</title>
@@ -94,7 +95,10 @@
     <button class="dl-btn" id="mainDlBtn" onclick="downloadVideo()">実行</button>
   </div>
 
+  <!-- ユーザーのトップページリンク表示場所 -->
   <div id="userLinkArea"></div>
+
+  <!-- ステータス表示エリア -->
   <div id="status"></div>
   
   <div class="copy-area">
@@ -103,21 +107,11 @@
   </div>
 
   <div class="version-box">
-    更新日時: 2026-09-14 11:04
+    更新日時: 2026-09-03 15:00
   </div>
 
   <script>
     let lastErrorMessage = '';
-
-    // URLパラメータ（?url=...）の自動読み込み＆実行
-    window.addEventListener('DOMContentLoaded', () => {
-      const params = new URLSearchParams(window.location.search);
-      const targetUrl = params.get('url');
-      if (targetUrl) {
-        document.getElementById('videoUrl').value = targetUrl;
-        downloadVideo();
-      }
-    });
 
     async function pasteUrl() {
       const inputEl = document.getElementById('videoUrl');
@@ -182,6 +176,7 @@
       }
     }
 
+    // TikTok処理
     async function handleTikTok(rawUrl) {
       const parsed = parseTikTokInfo(rawUrl);
 
