@@ -1,58 +1,248 @@
-// ==UserScript==
-// @name         ダウンローダー
-// @namespace    http://tampermonkey.net/
-// @version      1.0
-// @description  InstagramのストーリーズURLをSaveInstaへ送って自動で解析する
-// @match        https://www.instagram.com/*
-// @match        https://saveinsta.app/*
-// @grant        GM_registerMenuCommand
-// @grant        GM_openInTab
-// @run-at       document-end
-// ==/UserScript==
-
-(function() {
-    'use strict';
-
-    const TARGET_PAGE = 'https://saveinsta.app/ja';
-
-    // --- 1. 送信先（SaveInsta）での自動入力・実行処理 ---
-    if (window.location.href.startsWith('https://saveinsta.app/')) {
-        const urlParams = new URLSearchParams(window.location.search);
-        const targetUrl = urlParams.get('url');
-
-        if (targetUrl) {
-            const timer = setInterval(() => {
-                const inputEl = document.getElementById('s_input');
-                const submitBtn = document.querySelector('button[type="submit"]') || document.querySelector('.btn-download');
-
-                if (inputEl && submitBtn) {
-                    clearInterval(timer);
-                    inputEl.value = decodeURIComponent(targetUrl);
-                    // 入力イベントを発火させてボタンを有効化
-                    inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-                    inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-                    submitBtn.click();
-                }
-            }, 300);
-        }
-        return;
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <!-- 検索エンジンにインデックスされないように設定 -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tool-page</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; text-align: center; background-color: #f9f9f9; }
+    h2 { color: #333; margin-bottom: 5px; }
+    
+    .supported-sites {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 25px;
     }
 
-    // --- 2. Instagram上でのURL抽出処理 ---
-    function getInstagramUrl() {
-        // 現在開いているページのURL（ストーリーズ再生中のURL）を取得
-        return window.location.href;
+    .input-group {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
     }
 
-    // メニューコマンド登録（階層名：Tampermonkey > ダウンローダー > Instagram）
-    GM_registerMenuCommand('Instagram', () => {
-        const sendUrl = getInstagramUrl();
-        if (sendUrl && (sendUrl.includes('/stories/') || sendUrl.includes('/reels/') || sendUrl.includes('/p/'))) {
-            const dest = `${TARGET_PAGE}?url=${encodeURIComponent(sendUrl)}`;
-            GM_openInTab(dest, { active: true });
+    input {
+      flex-grow: 1;
+      max-width: 400px;
+      padding: 12px;
+      font-size: 16px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      box-sizing: border-box;
+    }
+
+    button {
+      padding: 12px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      transition: background-color 0.2s;
+    }
+
+    .paste-btn {
+      background-color: #6c757d;
+      color: white;
+    }
+    .paste-btn:hover { background-color: #5a6268; }
+
+    .dl-btn {
+      background-color: #007bff;
+      color: white;
+      font-weight: bold;
+    }
+    .dl-btn:hover { background-color: #0069d9; }
+    .dl-btn:disabled { background-color: #a0cfff; cursor: not-allowed; }
+
+    #userLinkArea {
+      margin-top: 10px;
+      font-size: 15px;
+      word-break: break-all;
+    }
+    #userLinkArea a {
+      color: #007bff;
+      text-decoration: underline;
+      font-weight: bold;
+    }
+
+    #status { margin-top: 20px; font-weight: bold; word-break: break-all; min-height: 1.2em; }
+
+    .copy-area {
+      margin-top: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    #copyBtn { display: none; background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px 12px; font-size: 14px; border-radius: 4px; color: #333; }
+    #copyNotice { font-size: 13px; color: #28a745; font-weight: bold; }
+    
+    .version-box { margin-top: 50px; padding-top: 15px; border-top: 1px solid #eee; font-size: 13px; color: #888; }
+  </style>
+</head>
+<body>
+
+  <h2>tool-page</h2>
+  <div class="supported-sites">対応サイト: Instagram (Stories / Reels / Post)</div>
+  
+  <div class="input-group">
+    <input type="text" id="videoUrl" placeholder="InstagramのURLを入力" />
+    <button class="paste-btn" onclick="pasteUrl()" title="クリップボードから貼り付け">貼り付け</button>
+    <button class="dl-btn" id="mainDlBtn" onclick="downloadVideo()">実行</button>
+  </div>
+
+  <div id="userLinkArea"></div>
+
+  <!-- ステータス表示エリア -->
+  <div id="status"></div>
+  
+  <div class="copy-area">
+    <button id="copyBtn" onclick="copyError()">エラー詳細をコピー</button>
+    <span id="copyNotice"></span>
+  </div>
+
+  <div class="version-box">
+    更新日時: 2026-10-14 10:05
+  </div>
+
+  <script>
+    let lastErrorMessage = '';
+
+    async function pasteUrl() {
+      const inputEl = document.getElementById('videoUrl');
+      const statusDiv = document.getElementById('status');
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          inputEl.value = text.trim();
+          statusDiv.innerText = 'URLを貼り付けました。';
+          setTimeout(() => { if(statusDiv.innerText === 'URLを貼り付けました。') statusDiv.innerText = ''; }, 2000);
         } else {
-            alert('ストーリーズまたは投稿のページを開いた状態で実行してください。');
+          statusDiv.innerText = 'クリップボードが空、またはテキストではありません。';
         }
-    });
+      } catch (err) {
+        console.error('Failed to read clipboard: ', err);
+        statusDiv.innerText = '貼り付けに失敗しました。';
+      }
+    }
 
-})();
+    async function triggerDirectDownload(fileUrl, fileName) {
+      const statusDiv = document.getElementById('status');
+      statusDiv.innerText = 'ファイルをダウンロード中...';
+      try {
+        const res = await fetch(fileUrl);
+        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+        statusDiv.innerText = 'ダウンロードが完了しました！';
+      } catch (e) {
+        statusDiv.innerText = '別タブでメディアを開きます。右クリックで保存してください。';
+        window.open(fileUrl, '_blank');
+      }
+    }
+
+    // Instagram処理（Cobalt API利用）
+    async function handleInstagram(rawUrl) {
+      const statusDiv = document.getElementById('status');
+      statusDiv.innerText = '解析中...';
+
+      try {
+        const res = await fetch('https://api.cobalt.tools/api/json', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            url: rawUrl,
+            videoQuality: 'max'
+          })
+        });
+
+        const data = await res.json();
+
+        if (data && data.url) {
+          const fileName = `instagram_${Date.now()}.mp4`;
+          await triggerDirectDownload(data.url, fileName);
+          return true;
+        } else if (data && data.picker) {
+          // 複数枚（カルーセル等）が存在する場合、最初の1枚を取得
+          const firstItem = data.picker[0];
+          if (firstItem && firstItem.url) {
+            const fileName = `instagram_${Date.now()}.mp4`;
+            await triggerDirectDownload(firstItem.url, fileName);
+            return true;
+          }
+        }
+        
+        lastErrorMessage = `[Error] ${data.text || 'メディアURLを取得できませんでした。鍵アカウントの可能性があります。'}`;
+      } catch (err) {
+        lastErrorMessage = `[Fetch Error] ${err.message}`;
+      }
+      return false;
+    }
+
+    async function downloadVideo() {
+      const rawUrl = document.getElementById('videoUrl').value.trim();
+      const statusDiv = document.getElementById('status');
+      const copyBtn = document.getElementById('copyBtn');
+      const copyNotice = document.getElementById('copyNotice');
+      const dlBtn = document.getElementById('mainDlBtn');
+
+      statusDiv.innerText = '';
+      copyBtn.style.display = 'none';
+      copyNotice.innerText = '';
+      lastErrorMessage = '';
+
+      if (!rawUrl) {
+        statusDiv.innerText = 'URLを入力してください。';
+        return;
+      }
+
+      dlBtn.disabled = true;
+
+      const success = await handleInstagram(rawUrl);
+
+      if (!success) {
+        statusDiv.innerText = 'エラー: 動画を取得できませんでした。';
+        copyBtn.style.display = 'inline-block';
+      }
+
+      dlBtn.disabled = false;
+    }
+
+    function copyError() {
+      if (!lastErrorMessage) return;
+      const copyNotice = document.getElementById('copyNotice');
+      navigator.clipboard.writeText(lastErrorMessage).then(() => {
+        copyNotice.innerText = 'コピーしました！';
+        setTimeout(() => { copyNotice.innerText = ''; }, 2000);
+      }).catch(() => {
+        copyNotice.innerText = 'コピー失敗';
+        setTimeout(() => { copyNotice.innerText = ''; }, 2000);
+      });
+    }
+
+    // URLパラメータからの自動実行処理
+    window.addEventListener('DOMContentLoaded', () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const targetUrl = urlParams.get('url');
+      if (targetUrl) {
+        document.getElementById('videoUrl').value = decodeURIComponent(targetUrl);
+        downloadVideo();
+      }
+    });
+  </script>
+</body>
+</html>
