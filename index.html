@@ -1,337 +1,58 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <!-- 検索エンジンにインデックスされないように設定 -->
-  <meta name="robots" content="noindex, nofollow">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>tool-page</title>
-  <style>
-    body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; text-align: center; background-color: #f9f9f9; }
-    h2 { color: #333; margin-bottom: 5px; }
-    
-    .supported-sites {
-      font-size: 14px;
-      color: #666;
-      margin-bottom: 25px;
-    }
+// ==UserScript==
+// @name         ダウンローダー
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  InstagramのストーリーズURLをSaveInstaへ送って自動で解析する
+// @match        https://www.instagram.com/*
+// @match        https://saveinsta.app/*
+// @grant        GM_registerMenuCommand
+// @grant        GM_openInTab
+// @run-at       document-end
+// ==/UserScript==
 
-    .input-group {
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      align-items: center;
-      margin-bottom: 15px;
-      flex-wrap: wrap;
-    }
+(function() {
+    'use strict';
 
-    input {
-      flex-grow: 1;
-      max-width: 400px;
-      padding: 12px;
-      font-size: 16px;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      box-sizing: border-box;
-    }
+    const TARGET_PAGE = 'https://saveinsta.app/ja';
 
-    button {
-      padding: 12px 20px;
-      font-size: 16px;
-      cursor: pointer;
-      border: none;
-      border-radius: 8px;
-      transition: background-color 0.2s;
-    }
+    // --- 1. 送信先（SaveInsta）での自動入力・実行処理 ---
+    if (window.location.href.startsWith('https://saveinsta.app/')) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const targetUrl = urlParams.get('url');
 
-    .paste-btn {
-      background-color: #6c757d;
-      color: white;
-    }
-    .paste-btn:hover { background-color: #5a6268; }
+        if (targetUrl) {
+            const timer = setInterval(() => {
+                const inputEl = document.getElementById('s_input');
+                const submitBtn = document.querySelector('button[type="submit"]') || document.querySelector('.btn-download');
 
-    .dl-btn {
-      background-color: #007bff;
-      color: white;
-      font-weight: bold;
-    }
-    .dl-btn:hover { background-color: #0069d9; }
-    .dl-btn:disabled { background-color: #a0cfff; cursor: not-allowed; }
-
-    #userLinkArea {
-      margin-top: 10px;
-      font-size: 15px;
-      word-break: break-all;
-    }
-    #userLinkArea a {
-      color: #007bff;
-      text-decoration: underline;
-      font-weight: bold;
-    }
-
-    #status { margin-top: 20px; font-weight: bold; word-break: break-all; min-height: 1.2em; }
-
-    .copy-area {
-      margin-top: 15px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-    }
-    #copyBtn { display: none; background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px 12px; font-size: 14px; border-radius: 4px; color: #333; }
-    #copyNotice { font-size: 13px; color: #28a745; font-weight: bold; }
-    
-    .version-box { margin-top: 50px; padding-top: 15px; border-top: 1px solid #eee; font-size: 13px; color: #888; }
-  </style>
-</head>
-<body>
-
-  <h2>tool-page</h2>
-  <div class="supported-sites">対応サイト: TikTok</div>
-  
-  <div class="input-group">
-    <input type="text" id="videoUrl" placeholder="" />
-    <button class="paste-btn" onclick="pasteUrl()" title="クリップボードから貼り付け">貼り付け</button>
-    <button class="dl-btn" id="mainDlBtn" onclick="downloadVideo()">実行</button>
-  </div>
-
-  <!-- ユーザーのトップページリンク表示場所 -->
-  <div id="userLinkArea"></div>
-
-  <!-- ステータス表示エリア -->
-  <div id="status"></div>
-  
-  <div class="copy-area">
-    <button id="copyBtn" onclick="copyError()">エラー詳細をコピー</button>
-    <span id="copyNotice"></span>
-  </div>
-
-  <div class="version-box">
-    更新日時: 2026-09-15 08:51
-  </div>
-
-  <script>
-    let lastErrorMessage = '';
-
-    async function pasteUrl() {
-      const inputEl = document.getElementById('videoUrl');
-      const statusDiv = document.getElementById('status');
-      try {
-        const text = await navigator.clipboard.readText();
-        if (text) {
-          inputEl.value = text.trim();
-          statusDiv.innerText = 'URLを貼り付けました。';
-          setTimeout(() => { if(statusDiv.innerText === 'URLを貼り付けました。') statusDiv.innerText = ''; }, 2000);
-        } else {
-          statusDiv.innerText = 'クリップボードが空、またはテキストではありません。';
+                if (inputEl && submitBtn) {
+                    clearInterval(timer);
+                    inputEl.value = decodeURIComponent(targetUrl);
+                    // 入力イベントを発火させてボタンを有効化
+                    inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                    inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+                    submitBtn.click();
+                }
+            }, 300);
         }
-      } catch (err) {
-        console.error('Failed to read clipboard: ', err);
-        statusDiv.innerText = '貼り付けに失敗しました。';
-      }
-    }
-
-    function parseTikTokInfo(urlStr) {
-      let author = '';
-      let videoId = '';
-      try {
-        const u = new URL(urlStr);
-        const matchUser = u.pathname.match(/@([^/]+)/);
-        if (matchUser) author = matchUser[1];
-        const matchVideo = u.pathname.match(/video\/(\d+)/);
-        if (matchVideo) videoId = matchVideo[1];
-      } catch (e) {}
-      return { author, videoId };
-    }
-
-    function showUserLink(authorId) {
-      const userLinkArea = document.getElementById('userLinkArea');
-      if (!authorId || authorId === 'user') {
-        userLinkArea.innerHTML = '';
         return;
-      }
-      const profileUrl = `https://www.tiktok.com/@${authorId}`;
-      userLinkArea.innerHTML = `ユーザーページ: <a href="${profileUrl}" target="_blank" rel="noopener noreferrer">${profileUrl}</a>`;
     }
 
-    function getVideoHeight(url) {
-      return new Promise((resolve) => {
-        const video = document.createElement('video');
-        video.preload = 'metadata';
-        video.src = url;
-        video.onloadedmetadata = () => {
-          resolve(video.videoHeight || 0);
-        };
-        video.onerror = () => {
-          resolve(0);
-        };
-      });
+    // --- 2. Instagram上でのURL抽出処理 ---
+    function getInstagramUrl() {
+        // 現在開いているページのURL（ストーリーズ再生中のURL）を取得
+        return window.location.href;
     }
 
-    async function triggerDirectDownload(fileUrl, fileName, qualityLabel) {
-      const statusDiv = document.getElementById('status');
-      statusDiv.innerText = `[${qualityLabel}] ダウンロード中...`;
-      try {
-        const res = await fetch(fileUrl);
-        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
-        const blob = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(blobUrl);
-        statusDiv.innerText = `[${qualityLabel}] ダウンロードが完了しました！`;
-      } catch (e) {
-        statusDiv.innerText = `[${qualityLabel}] 別タブで動画を開きます。右クリックで保存してください。`;
-        window.open(fileUrl, '_blank');
-      }
-    }
-
-    // 予備ルート: Cobalt API（1080p対応API）
-    async function fetchFromCobalt(rawUrl) {
-      try {
-        const res = await fetch('https://api.cobalt.tools/api/json', {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            url: rawUrl,
-            videoQuality: 'max'
-          })
-        });
-        const data = await res.json();
-        if (data && data.url) {
-          return data.url;
-        }
-      } catch (e) {}
-      return null;
-    }
-
-    // 主ルート: TikWM API
-    async function fetchFromTikWM(rawUrl) {
-      try {
-        const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(rawUrl)}&hd=1`;
-        const res = await fetch(apiUrl);
-        const data = await res.json();
-        if (data.code === 0 && data.data) {
-          let link = data.data.hdplay || data.data.play;
-          if (link && !link.startsWith('http')) {
-            link = 'https://www.tikwm.com' + link;
-          }
-          const author = (data.data.author && data.data.author.unique_id) || '';
-          const id = data.data.id || '';
-          return { link, author, id };
-        }
-      } catch (e) {}
-      return null;
-    }
-
-    // TikTok処理（ハイブリッド方式：高画質優先）
-    async function handleTikTok(rawUrl) {
-      const parsed = parseTikTokInfo(rawUrl);
-      const statusDiv = document.getElementById('status');
-      statusDiv.innerText = '画質解析中...';
-
-      let targetUrl = '';
-      let author = parsed.author || 'user';
-      let videoId = parsed.videoId || Date.now();
-
-      // 1. まずTikWMで検索
-      const tikwmResult = await fetchFromTikWM(rawUrl);
-      if (tikwmResult && tikwmResult.link) {
-        targetUrl = tikwmResult.link;
-        if (tikwmResult.author) author = tikwmResult.author;
-        if (tikwmResult.id) videoId = tikwmResult.id;
-
-        // 2. 画質チェック。SD（1080p未満）だった場合はCobalt APIへ高画質をリクエスト
-        const height = await getVideoHeight(targetUrl);
-        if (height < 1080) {
-          statusDiv.innerText = '最高画質(1080p)サーバーへ切り替え中...';
-          const cobaltUrl = await fetchFromCobalt(rawUrl);
-          if (cobaltUrl) {
-            const cobaltHeight = await getVideoHeight(cobaltUrl);
-            if (cobaltHeight > height) {
-              targetUrl = cobaltUrl;
-            }
-          }
-        }
-      } else {
-        // TikWM失敗時のフォールバック
-        targetUrl = await fetchFromCobalt(rawUrl);
-      }
-
-      if (targetUrl) {
-        statusDiv.innerText = '最終画質を検証中...';
-        const finalHeight = await getVideoHeight(targetUrl);
-        
-        let qualityLabel = '';
-        if (finalHeight >= 1080) {
-          qualityLabel = `画質: HD (${finalHeight}p)`;
-        } else if (finalHeight > 0) {
-          qualityLabel = `画質: SD (${finalHeight}p)`;
+    // メニューコマンド登録（階層名：Tampermonkey > ダウンローダー > Instagram）
+    GM_registerMenuCommand('Instagram', () => {
+        const sendUrl = getInstagramUrl();
+        if (sendUrl && (sendUrl.includes('/stories/') || sendUrl.includes('/reels/') || sendUrl.includes('/p/'))) {
+            const dest = `${TARGET_PAGE}?url=${encodeURIComponent(sendUrl)}`;
+            GM_openInTab(dest, { active: true });
         } else {
-          qualityLabel = '画質: 取得済';
+            alert('ストーリーズまたは投稿のページを開いた状態で実行してください。');
         }
+    });
 
-        const fileName = `${author}(${videoId}).mp4`;
-        showUserLink(author);
-        await triggerDirectDownload(targetUrl, fileName, qualityLabel);
-        return true;
-      } else {
-        lastErrorMessage = '[Error] 最高画質サーバーおよび予備サーバーからの取得に失敗しました。';
-      }
-
-      return false;
-    }
-
-    async function downloadVideo() {
-      const rawUrl = document.getElementById('videoUrl').value.trim();
-      const statusDiv = document.getElementById('status');
-      const copyBtn = document.getElementById('copyBtn');
-      const copyNotice = document.getElementById('copyNotice');
-      const dlBtn = document.getElementById('mainDlBtn');
-      const userLinkArea = document.getElementById('userLinkArea');
-
-      statusDiv.innerText = '';
-      userLinkArea.innerHTML = '';
-      copyBtn.style.display = 'none';
-      copyNotice.innerText = '';
-      lastErrorMessage = '';
-
-      if (!rawUrl) {
-        statusDiv.innerText = 'URLを入力してください。';
-        return;
-      }
-
-      statusDiv.innerText = '解析中...';
-      dlBtn.disabled = true;
-
-      const success = await handleTikTok(rawUrl);
-
-      if (!success) {
-        statusDiv.innerText = 'エラー: 動画を取得できませんでした。';
-        copyBtn.style.display = 'inline-block';
-      }
-
-      dlBtn.disabled = false;
-    }
-
-    function copyError() {
-      if (!lastErrorMessage) return;
-      const copyNotice = document.getElementById('copyNotice');
-      navigator.clipboard.writeText(lastErrorMessage).then(() => {
-        copyNotice.innerText = 'コピーしました！';
-        setTimeout(() => { copyNotice.innerText = ''; }, 2000);
-      }).catch(() => {
-        copyNotice.innerText = 'コピー失敗';
-        setTimeout(() => { copyNotice.innerText = ''; }, 2000);
-      });
-    }
-  </script>
-</body>
-</html>
+})();
