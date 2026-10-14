@@ -2,7 +2,6 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <!-- 検索エンジンにインデックスされないように設定 -->
   <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>tool-page</title>
@@ -58,17 +57,6 @@
     .dl-btn:hover { background-color: #0069d9; }
     .dl-btn:disabled { background-color: #a0cfff; cursor: not-allowed; }
 
-    #userLinkArea {
-      margin-top: 10px;
-      font-size: 15px;
-      word-break: break-all;
-    }
-    #userLinkArea a {
-      color: #007bff;
-      text-decoration: underline;
-      font-weight: bold;
-    }
-
     #status { margin-top: 20px; font-weight: bold; word-break: break-all; min-height: 1.2em; }
 
     .copy-area {
@@ -95,9 +83,6 @@
     <button class="dl-btn" id="mainDlBtn" onclick="downloadVideo()">実行</button>
   </div>
 
-  <div id="userLinkArea"></div>
-
-  <!-- ステータス表示エリア -->
   <div id="status"></div>
   
   <div class="copy-area">
@@ -106,7 +91,7 @@
   </div>
 
   <div class="version-box">
-    更新日時: 2026-10-14 10:05
+    更新日時: 2026-10-14 10:10
   </div>
 
   <script>
@@ -152,43 +137,58 @@
       }
     }
 
-    // Instagram処理（Cobalt API利用）
+    // Instagram処理（CORS対応・プロキシフォールバック付き）
     async function handleInstagram(rawUrl) {
       const statusDiv = document.getElementById('status');
       statusDiv.innerText = '解析中...';
 
-      try {
-        const res = await fetch('https://api.cobalt.tools/api/json', {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            url: rawUrl,
-            videoQuality: 'max'
-          })
-        });
+      const payload = {
+        url: rawUrl,
+        videoQuality: 'max'
+      };
 
-        const data = await res.json();
+      // APIエンドポイント候補（直リクエスト ＋ CORSプロキシ経由）
+      const endpoints = [
+        'https://api.cobalt.tools/api/json',
+        'https://corsproxy.io/?' + encodeURIComponent('https://api.cobalt.tools/api/json')
+      ];
 
-        if (data && data.url) {
-          const fileName = `instagram_${Date.now()}.mp4`;
-          await triggerDirectDownload(data.url, fileName);
-          return true;
-        } else if (data && data.picker) {
-          // 複数枚（カルーセル等）が存在する場合、最初の1枚を取得
-          const firstItem = data.picker[0];
-          if (firstItem && firstItem.url) {
+      for (const endpoint of endpoints) {
+        try {
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
+
+          if (!res.ok) continue;
+
+          const data = await res.json();
+
+          if (data && data.url) {
             const fileName = `instagram_${Date.now()}.mp4`;
-            await triggerDirectDownload(firstItem.url, fileName);
+            await triggerDirectDownload(data.url, fileName);
             return true;
+          } else if (data && data.picker && data.picker.length > 0) {
+            const firstItem = data.picker[0];
+            if (firstItem && firstItem.url) {
+              const fileName = `instagram_${Date.now()}.mp4`;
+              await triggerDirectDownload(firstItem.url, fileName);
+              return true;
+            }
+          } else if (data && data.text) {
+            lastErrorMessage = `[API Error] ${data.text}`;
           }
+        } catch (err) {
+          lastErrorMessage = `[Fetch Error] ${err.message}`;
         }
-        
-        lastErrorMessage = `[Error] ${data.text || 'メディアURLを取得できませんでした。鍵アカウントの可能性があります。'}`;
-      } catch (err) {
-        lastErrorMessage = `[Fetch Error] ${err.message}`;
+      }
+
+      if (!lastErrorMessage) {
+        lastErrorMessage = '[Error] 解析サーバーに接続できませんでした。鍵アカウントの可能性があります。';
       }
       return false;
     }
@@ -234,7 +234,7 @@
       });
     }
 
-    // URLパラメータからの自動実行処理
+    // URLパラメータからの自動実行
     window.addEventListener('DOMContentLoaded', () => {
       const urlParams = new URLSearchParams(window.location.search);
       const targetUrl = urlParams.get('url');
